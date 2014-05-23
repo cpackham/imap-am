@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+"""
+Interactively apply git patches straight from an IMAP server.
+"""
+
+import argparse
+import imaplib
+import getpass
+import re
+import readline
+import subprocess
+
+
+def get_password(username):
+    return getpass.getpass()
+
+
+def patches(client, folder):
+    client.select(folder, readonly=True)
+    rc, msgnums = client.search(None, '(SUBJECT "PATCH")')
+    if rc != 'OK':
+        return
+
+    for msgid in msgnums[0].split():
+        rc, data = client.fetch(msgid, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
+        if rc != 'OK':
+            return
+        yield (msgid, re.sub('^Subject:', '', data[0][1]).strip())
+
+
+def apply(client, folder, msgid):
+    rc, data = client.fetch(msgid, '(RFC822)')
+    if rc != 'OK':
+        return
+
+    proc = subprocess.Popen(['git', 'am', '-s', '-3'], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdoutdata, stderrdata = proc.communicate(data[0][1])
+
+    if proc.returncode == 0:
+        print stdoutdata
+    else:
+        print stdoutdata
+        print stderrdata
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+
+    parser.add_argument('--user', type=str, default=getpass.getuser(),
+                        help='IMAP user name (default: %(default)s)')
+    parser.add_argument('--tls', action='store_true', default=False,
+                        help='Use a secure connection (SSL)')
+    parser.add_argument('--port', type=int,
+                        help='Port to connect to (default: 143 or 993)')
+    parser.add_argument('server', type=str,
+                        help='IMAP server')
+    parser.add_argument('folder', type=str, default='INBOX', nargs='?',
+                        help='IMAP folder to search')
+    args = parser.parse_args()
+
+    port = 993 if args.tls else 143
+    if args.port:
+        port = args.port
+
+    password = get_password(args.user)
+
+    if args.tls:
+        client = imaplib.IMAP4_SSL(args.server, port)
+    else:
+        client = imaplib.IMAP4(args.server, port)
+
+    client.login(args.user, password)
+    patchlist = list(patches(client, args.folder))
+    for msgid, subject in patchlist:
+        print '{:5s} {}'.format(msgid, subject)
+
+    try:
+        while True:
+            id_ = raw_input('Patch to apply: ')
+            if id_.lower() == 'q':
+                break
+            if id_ == '?':
+                for msgid, subject in patchlist:
+                    print '{:5s} {}'.format(msgid, subject)
+                continue
+            if id_ in [msgid for msgid, _ in patchlist]:
+                apply(client, args.folder, id_)
+                continue
+    except KeyboardInterrupt:
+        print ""
+        pass
+
+    client.logout()
