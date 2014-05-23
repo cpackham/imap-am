@@ -9,15 +9,15 @@ Interactively apply git patches straight from an IMAP server.
 
 ARGUMENTS
 =========
-  server       IMAP server
-  folder       IMAP folder to search
+* `server`       IMAP server
+* `folder`       IMAP folder to search
 
 OPTIONS
 =======
-  -h, --help   show this help message and exit
-  --user USER  IMAP user name (default: $USER)
-  --tls        Use a secure connection (SSL)
-  --port PORT  Port to connect to (default: 143 or 993)
+* `-h, --help`   show this help message and exit
+* `--user USER`  IMAP user name (default: $USER)
+* `--tls`        Use a secure connection (SSL)
+* `--port PORT`  Port to connect to (default: 143 or 993)
 
 INSTALLATION
 ============
