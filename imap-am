@@ -20,6 +20,7 @@ Interactively apply git patches straight from an IMAP server.
 
 import argparse
 import imaplib
+import email
 import getpass
 import re
 import readline
@@ -32,11 +33,11 @@ def get_password(username):
 
 def patches(client, folder):
     client.select(folder, readonly=True)
-    rc, msgnums = client.search(None, '(SUBJECT "PATCH")')
+    rc, msgnums = client.search(None, '(SUBJECT "PATCH]")')
     if rc != 'OK':
         return
-
-    for msgid in msgnums[0].split():
+    print repr(msgnums)
+    for msgid in msgnums:
         rc, data = client.fetch(msgid, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
         if rc != 'OK':
             return
@@ -48,15 +49,29 @@ def apply(client, folder, msgid):
     if rc != 'OK':
         return
 
+    msg = email.message_from_string(data[0][1])
+    patch = '{}\n\n{}\n'.format(re.sub('\r\n', '', msg.get('Subject')),
+                                msg.get_payload(decode=True))
+
     proc = subprocess.Popen(['git', 'am', '-s', '-3'], stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdoutdata, stderrdata = proc.communicate(data[0][1])
+    stdoutdata, stderrdata = proc.communicate(patch)
 
     if proc.returncode == 0:
         print stdoutdata
     else:
         print stdoutdata
         print stderrdata
+
+
+def view(client, folder, msgid):
+    rc, data = client.fetch(msgid, '(RFC822)')
+    if rc != 'OK':
+        return
+
+    msg = email.message_from_string(data[0][1])
+    print '{}\n\n{}\n'.format(re.sub('\r\n', '', msg.get('Subject')),
+                              msg.get_payload(decode=True))
 
 
 if __name__ == "__main__":
@@ -68,6 +83,8 @@ if __name__ == "__main__":
                         help='Use a secure connection (SSL)')
     parser.add_argument('--port', type=int,
                         help='Port to connect to (default: 143 or 993)')
+    parser.add_argument('--view', action='store_true', default=False,
+                        help='View patches instead of applying them')
     parser.add_argument('server', type=str,
                         help='IMAP server')
     parser.add_argument('folder', type=str, default='INBOX', nargs='?',
@@ -92,7 +109,8 @@ if __name__ == "__main__":
 
     try:
         while True:
-            id_ = raw_input('Patch to apply: ')
+            id_ = raw_input('Patch to {} (\'q\' to quit): '
+                            .format('apply' if not args.view else 'view'))
             if id_.lower() == 'q':
                 break
             if id_ == '?':
@@ -100,7 +118,10 @@ if __name__ == "__main__":
                     print '{:5s} {}'.format(msgid, subject)
                 continue
             if id_ in [msgid for msgid, _ in patchlist]:
-                apply(client, args.folder, id_)
+                if args.view:
+                    view(client, args.folder, id_)
+                else:
+                    apply(client, args.folder, id_)
                 continue
     except KeyboardInterrupt:
         print ""
